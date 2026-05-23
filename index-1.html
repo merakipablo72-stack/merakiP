@@ -283,8 +283,8 @@ tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
 
 <div class="leyenda">
   <div class="leyenda-item"><div class="dot dot-red"></div><span>🔴 Vencido o ≤7 días — CRÍTICO</span></div>
-  <div class="leyenda-item"><div class="dot dot-yellow"></div><span>🟡 8 a 30 días — ATENCIÓN</span></div>
-  <div class="leyenda-item"><div class="dot dot-green"></div><span>🟢 Más de 30 días — OK</span></div>
+  <div class="leyenda-item"><div class="dot dot-yellow"></div><span>🟡 8 a 60 días — ATENCIÓN</span></div>
+  <div class="leyenda-item"><div class="dot dot-green"></div><span>🟢 Más de 60 días — OK</span></div>
   <div class="leyenda-item"><div class="dot dot-gray"></div><span>◻ Sin fecha</span></div>
 </div>
 
@@ -617,13 +617,13 @@ function showMsg(t) {
 }
 
 function dias(f) { if (!f) return null; const hoy = new Date(); hoy.setHours(0,0,0,0); return Math.ceil((new Date(f+"T00:00:00") - hoy) / 86400000); }
-function estado(d) { if (d === null) return "sin-fecha"; if (d <= 7) return "critico"; if (d <= 30) return "atencion"; return "ok"; }
+function estado(d) { if (d === null) return "sin-fecha"; if (d <= 7) return "critico"; if (d <= 60) return "atencion"; return "ok"; }
 function badge(d) {
   if (d === null) return `<span class="badge b-gry">◻ Sin fecha</span>`;
   if (d < 0) return `<span class="badge b-red">🔴 Vencido</span>`;
   if (d === 0) return `<span class="badge b-red">🔴 Hoy</span>`;
   if (d <= 7) return `<span class="badge b-red">🔴 ${d}d</span>`;
-  if (d <= 30) return `<span class="badge b-yel">🟡 ${d}d</span>`;
+  if (d <= 60) return `<span class="badge b-yel">🟡 ${d}d</span>`;
   return `<span class="badge b-grn">🟢 ${d}d</span>`;
 }
 function fmtF(s) { if (!s) return "—"; const[y,m,d]=s.split("-"); return `${d}/${m}/${y}`; }
@@ -721,7 +721,7 @@ function enviarReporte() {
   const atencion = registros.filter(r => estado(dias(r.fecha)) === "atencion");
   let body = `REPORTE DE VENCIMIENTOS — MERCADO MERAKI\nFecha: ${hoy}\n\nTotal: ${registros.length} | Críticos: ${criticos.length} | Atención: ${atencion.length}\n\n`;
   if (criticos.length) { body += `=== CRÍTICOS (vencidos o ≤7 días) ===\n`; criticos.forEach(r => { const d = dias(r.fecha); body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${d<0?"VENCIDO":d+"d"}) | ${r.ubicacion}\n`; }); body += "\n"; }
-  if (atencion.length) { body += `=== ATENCIÓN (8–30 días) ===\n`; atencion.forEach(r => body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${dias(r.fecha)}d) | ${r.ubicacion}\n`); }
+  if (atencion.length) { body += `=== ATENCIÓN (8–60 días) ===\n`; atencion.forEach(r => body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${dias(r.fecha)}d) | ${r.ubicacion}\n`); }
   if (!criticos.length && !atencion.length) body += "¡Todos los productos están en buen estado!";
   const asunto = encodeURIComponent(`[Meraki] Reporte de Vencimientos — ${hoy}`);
   window.location.href = `mailto:merakipablo72@gmail.com?subject=${asunto}&body=${encodeURIComponent(body)}`;
