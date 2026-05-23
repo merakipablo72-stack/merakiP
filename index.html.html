@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Vencimientos — Meraki</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Segoe UI", Arial, sans-serif; background: #f0f4f8; color: #1a202c; }
+
+.header {
+  background: linear-gradient(135deg deg, #1a202c 0%, #2d3748 100%);
+  color: white; padding: 16px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); flex-wrap: wrap; gap: 10px;
+}
+.header h1 { font-size: 1.2rem; font-weight: 700; }
+.header .subtitle { font-size: 0.78rem; opacity: 0.7; margin-top: 2px; }
+.header-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-hdr {
+  color: white; border: none; padding: 9px 14px; border-radius: 8px;
+  cursor: pointer; font-size: 0.82rem; font-weight: 600;
+  display: flex; align-items: center; gap: 5px; transition: opacity 0.2s;
+}
+.btn-hdr:hover { opacity: 0.85; }
+.btn-verde { background: #38a169; }
+.btn-azul  { background: #667eea; }
+.btn-rojo  { background: #e53e3e; }
+
+/* SYNC STATUS */
+.sync-bar {
+  background: #1a202c; color: white; padding: 6px 24px;
+  font-size: 0.75rem; display: flex; align-items: center; gap: 8px;
+}
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #68d391; flex-shrink: 0; }
+.sync-dot.syncing { background: #f6ad55; animation: pulse 1s infinite; }
+.sync-dot.error { background: #fc8181; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* SETUP SCREEN */
+.setup-screen {
+  display: flex; align-items: center; justify-content: center;
+  min-height: calc(100vh - 90px); padding: 20px;
+}
+.setup-card {
+  background: white; border-radius: 16px; padding: 40px;
+  max-width: 480px; width: 100%; text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+.setup-card h2 { font-size: 1.4rem; color: #2d3748; margin-bottom: 10px; }
+.setup-card p { color: #718096; font-size: 0.9rem; margin-bottom: 28px; line-height: 1.6; }
+.btn-upload-xlsx {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white; padding: 14px 28px; border-radius: 10px;
+  font-size: 1rem; font-weight: 700; cursor: pointer;
+  border: none; transition: opacity 0.2s;
+}
+.btn-upload-xlsx:hover { opacity: 0.9; }
+.setup-nota {
+  margin-top: 20px; font-size: 0.78rem; color: #a0aec0;
+  background: #f7fafc; border-radius: 8px; padding: 12px;
+}
+.loading-bar {
+  display: none; margin-top: 20px;
+  background: #e2e8f0; border-radius: 10px; height: 8px; overflow: hidden;
+}
+.loading-bar-inner {
+  height: 100%; background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 10px; animation: loading 1.5s ease-in-out infinite;
+  width: 60%;
+}
+@keyframes loading { 0%{margin-left:-60%} 100%{margin-left:100%} }
+.loading-txt { margin-top: 10px; color: #667eea; font-size: 0.85rem; font-weight: 600; display: none; }
+
+/* LEYENDA */
+.leyenda {
+  display: flex; gap: 20px; padding: 10px 24px;
+  background: white; border-bottom: 1px solid #e2e8f0;
+  font-size: 0.82rem; flex-wrap: wrap;
+}
+.leyenda-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.dot-red{background:#e53e3e} .dot-yellow{background:#d69e2e}
+.dot-green{background:#38a169} .dot-gray{background:#718096}
+
+/* MAIN */
+.main { display: flex; min-height: calc(100vh - 130px); }
+
+/* PANEL CARGA */
+.panel-carga {
+  width: 330px; min-width: 280px; background: white;
+  border-right: 1px solid #e2e8f0; padding: 18px;
+  display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+}
+.panel-titulo { font-size: 0.95rem; font-weight: 700; color: #2d3748; border-bottom: 2px solid #667eea; padding-bottom: 8px; }
+
+/* USB */
+.usb-box { background: linear-gradient(135deg,#1a202c,#2d3748); border-radius: 10px; padding: 12px; }
+.usb-label { color: #a0aec0; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.usb-input {
+  width: 100%; padding: 10px 12px; font-size: 1rem; font-family: monospace;
+  border: 2px solid #4a5568; border-radius: 7px; background: #1a202c;
+  color: #68d391; outline: none; letter-spacing: 2px;
+}
+.usb-input::placeholder { color: #4a5568; letter-spacing: 1px; font-size: 0.85rem; }
+.usb-input:focus { border-color: #68d391; box-shadow: 0 0 0 3px rgba(104,211,145,0.2); }
+.usb-status { font-size: 0.78rem; text-align: center; min-height: 16px; font-weight: 600; margin-top: 6px; }
+.usb-ok{color:#68d391} .usb-err{color:#fc8181}
+
+.sep { display: flex; align-items: center; gap: 8px; color: #a0aec0; font-size: 0.75rem; }
+.sep::before, .sep::after { content:""; flex:1; height:1px; background:#e2e8f0; }
+
+/* SCANNER CAM */
+.scanner-area { border: 2px dashed #cbd5e0; border-radius: 10px; padding: 10px; text-align: center; background: #f7fafc; }
+#reader { width: 100%; border-radius: 8px; overflow: hidden; }
+.btn-scan {
+  width: 100%; padding: 9px; background: #4a5568; color: white;
+  border: none; border-radius: 7px; cursor: pointer; font-size: 0.88rem;
+  font-weight: 600; margin-top: 8px; transition: background 0.2s;
+}
+.btn-scan:hover{background:#2d3748} .btn-scan.activo{background:#e53e3e}
+
+/* FORM */
+.fg { display: flex; flex-direction: column; gap: 3px; }
+.fg label { font-size: 0.78rem; font-weight: 600; color: #4a5568; }
+.fg input {
+  padding: 8px 11px; border: 1px solid #cbd5e0; border-radius: 7px;
+  font-size: 0.88rem; outline: none; transition: border-color 0.2s; width: 100%;
+}
+.fg input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.15); }
+.fg input[readonly] { background: #f7fafc; }
+
+.cod-box {
+  padding: 8px 11px; background: #ebf8ff; border: 1px solid #bee3f8;
+  border-radius: 7px; font-size: 0.85rem; color: #2b6cb0; font-weight: 600;
+  min-height: 36px; display: flex; align-items: center;
+}
+
+/* AUTOCOMPLETE */
+.ac-wrap { position: relative; }
+.ac-list {
+  position: absolute; z-index: 1000; width: 100%;
+  max-height: 180px; overflow-y: auto; background: white;
+  border: 1px solid #cbd5e0; border-top: none;
+  border-radius: 0 0 7px 7px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: none;
+}
+.ac-list.vis { display: block; }
+.ac-item { padding: 7px 11px; cursor: pointer; font-size: 0.83rem; border-bottom: 1px solid #f0f0f0; }
+.ac-item:hover, .ac-item.sel { background: #ebf4ff; }
+.ac-item .ac-cod { font-size: 0.73rem; color: #718096; }
+
+.btn-agregar {
+  width: 100%; padding: 11px;
+  background: linear-gradient(135deg,#667eea,#764ba2);
+  color: white; border: none; border-radius: 8px;
+  cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: opacity 0.2s;
+}
+.btn-agregar:hover{opacity:0.9}
+.msg-ok{color:#38a169;font-size:0.82rem;font-weight:600;text-align:center;display:none}
+.msg-err{color:#e53e3e;font-size:0.82rem;font-weight:600;text-align:center;display:none}
+
+/* PANEL TABLA */
+.panel-tabla { flex: 1; padding: 18px; overflow-x: auto; }
+
+/* STATS */
+.stats-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.stat-card {
+  background: white; border-radius: 10px; padding: 12px 16px;
+  flex: 1; min-width: 90px; text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  border-top: 4px solid #cbd5e0; cursor: pointer; transition: transform 0.1s;
+}
+.stat-card:hover{transform:translateY(-2px)}
+.stat-card.rojo{border-top-color:#e53e3e} .stat-card.amarillo{border-top-color:#d69e2e}
+.stat-card.verde{border-top-color:#38a169} .stat-card.gris{border-top-color:#718096}
+.stat-num{font-size:1.7rem;font-weight:800}
+.stat-card.rojo .stat-num{color:#e53e3e} .stat-card.amarillo .stat-num{color:#d69e2e}
+.stat-card.verde .stat-num{color:#38a169}
+.stat-label{font-size:0.73rem;color:#718096;margin-top:2px}
+
+/* FILTROS */
+.filtros { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.fb {
+  padding: 5px 13px; border: 1px solid #cbd5e0; border-radius: 20px;
+  background: white; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  color: #4a5568; transition: all 0.2s;
+}
+.fb:hover{border-color:#667eea;color:#667eea} .fb.act{background:#667eea;border-color:#667eea;color:white}
+.buscar-t {
+  margin-left: auto; padding: 5px 12px; border: 1px solid #cbd5e0;
+  border-radius: 20px; font-size: 0.83rem; outline: none; width: 180px;
+}
+.buscar-t:focus{border-color:#667eea}
+
+/* TABLA */
+table { width:100%; border-collapse:collapse; background:white; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.08); font-size:0.86rem; }
+thead{background:#2d3748;color:white}
+th{padding:11px 13px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px}
+td{padding:9px 13px;border-bottom:1px solid #f0f4f8;vertical-align:middle}
+tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:0.76rem;font-weight:700;white-space:nowrap}
+.b-red{background:#fff5f5;color:#c53030;border:1px solid #fed7d7}
+.b-yel{background:#fffff0;color:#975a16;border:1px solid #fefcbf}
+.b-grn{background:#f0fff4;color:#276749;border:1px solid #c6f6d5}
+.b-gry{background:#f7fafc;color:#4a5568;border:1px solid #e2e8f0}
+.btn-del{background:none;border:none;cursor:pointer;color:#e53e3e;font-size:1rem;padding:3px 7px;border-radius:5px;transition:background 0.2s}
+.btn-del:hover{background:#fff5f5}
+.btn-edt{background:none;border:none;cursor:pointer;color:#667eea;font-size:0.95rem;padding:3px 7px;border-radius:5px;transition:background 0.2s}
+.btn-edt:hover{background:#ebf4ff}
+.vacio{text-align:center;padding:36px;color:#a0aec0;font-size:0.88rem}
+
+/* MODAL */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:2000}
+.modal-ov.vis{display:flex}
+.modal{background:white;border-radius:14px;padding:26px;width:340px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.modal h3{font-size:1.05rem;margin-bottom:14px;color:#2d3748}
+.modal .fg{margin-bottom:10px}
+.modal-btns{display:flex;gap:10px;margin-top:14px}
+.btn-grd{flex:1;padding:10px;background:#667eea;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+.btn-can{flex:1;padding:10px;background:#e2e8f0;color:#4a5568;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+
+/* ESTADO MAESTRO */
+.maestro-info{font-size:0.75rem;color:#718096;text-align:center;padding:6px;background:#f7fafc;border-radius:6px}
+.maestro-ok{color:#38a169;font-weight:700}
+
+@media(max-width:768px){
+  .main{flex-direction:column}
+  .panel-carga{width:100%;border-right:none;border-bottom:1px solid #e2e8f0}
+  .buscar-t{width:100%;margin-left:0}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <h1>🛒 Mercado Meraki — Control de Vencimientos</h1>
+    <div class="subtitle">Registrá, monitoreá y alertá vencimientos de productos</div>
+  </div>
+  <div class="header-btns">
+    <button class="btn-hdr btn-verde" onclick="exportarDatos()">⬇️ Exportar</button>
+    <label class="btn-hdr btn-azul" style="cursor:pointer">
+      ⬆️ Importar
+      <input type="file" id="inputImport" accept=".json" onchange="importarDatos(event)" style="display:none">
+    </label>
+    <button class="btn-hdr btn-rojo" onclick="enviarReporte()">📧 Reporte</button>
+  </div>
+</div>
+
+<!-- SYNC BAR -->
+<div class="sync-bar">
+  <div class="sync-dot" id="syncDot"></div>
+  <span id="syncTxt">Conectando con la nube...</span>
+</div>
+
+<!-- PANTALLA SETUP -->
+<div class="setup-screen" id="setupScreen">
+  <div class="setup-card">
+    <div style="font-size:3rem;margin-bottom:12px">📦</div>
+    <h2>¡Bienvenido a Meraki!</h2>
+    <p>Para empezar, importá el archivo maestro de productos <strong>(ARTICULOS LUIS - OBRERO.xlsx)</strong>.<br>
+    Los productos se guardan en esta computadora y no necesitás importarlos de nuevo.</p>
+    <label class="btn-upload-xlsx">
+      📂 Cargar maestro de productos
+      <input type="file" id="xlsxInput" accept=".xlsx,.xls" onchange="cargarMaestro(event)" style="display:none">
+    </label>
+    <div class="loading-bar" id="loadingBar"><div class="loading-bar-inner"></div></div>
+    <div class="loading-txt" id="loadingTxt">Procesando productos...</div>
+    <div class="setup-nota">
+      ⚠️ Solo necesitás hacer esto una vez por computadora.<br>
+      La próxima vez que abras esta página, los productos ya estarán cargados.
+    </div>
+  </div>
+</div>
+
+<!-- APLICACION PRINCIPAL -->
+<div id="appPrincipal" style="display:none">
+
+<div class="leyenda">
+  <div class="leyenda-item"><div class="dot dot-red"></div><span>🔴 Vencido o ≤7 días — CRÍTICO</span></div>
+  <div class="leyenda-item"><div class="dot dot-yellow"></div><span>🟡 8 a 30 días — ATENCIÓN</span></div>
+  <div class="leyenda-item"><div class="dot dot-green"></div><span>🟢 Más de 30 días — OK</span></div>
+  <div class="leyenda-item"><div class="dot dot-gray"></div><span>◻ Sin fecha</span></div>
+</div>
+
+<div class="main">
+<div class="panel-carga">
+  <div class="panel-titulo">📋 Cargar producto</div>
+  <div class="usb-box">
+    <div class="usb-label">🔫 Escáner USB / pistola</div>
+    <input type="text" id="usbInput" class="usb-input" placeholder="Clic aquí y escaneá..." autocomplete="off" onkeydown="usbKey(event)" oninput="usbIput()">
+    <div class="usb-status" id="usbStatus"></div>
+  </div>
+  <div class="sep">— o usá la cámara —</div>
+  <div class="scanner-area">
+    <div id="reader"></div>
+    <button class="btn-scan" id="btnScan" onclick="toggleScan()">📷 Activar cámara</button>
+  </div>
+  <div class="sep">— o buscá por nombre —</div>
+  <div class="fg">
+    <label>Buscar producto</label>
+    <div class="ac-wrap">
+      <input type="text" id="inputBusq" placeholder="Escribí el nombre..." oninput="buscar()" onkeydown="navAc(event)" autocomplete="off">
+      <div class="ac-list" id="acList"></div>
+    </div>
+  </div>
+  <div class="fg"><label>Código detectado</label><div class="cod-box" id="codBox">—</div></div>
+  <div class="fg"><label>Producto</label><input type="text" id="inputNombre" placeholder="Nombre" readonly></div>
+  <div class="fg"><label>Nº de Lote (opcional)</label><input type="text" id="inputLote" placeholder="Ej: L2024-001"></div>
+  <div class="fg"><label>Fecha de Vencimiento *</label><input type="date" id="inputFecha"></div>
+  <div class="fg"><label>Cantidad en stock</label><input type="number" id="inputCant" min="0" placeholder="Ej: 12"></div>
+  <div class="fg"><label>Ubicación (opcional)</label><input type="text" id="inputUbic" placeholder="Ej: Góndola 3, estante 2"></div>
+  <button class="btn-agregar" onclick="agregar()">✅ Agregar a control</button>
+  <div class="msg-ok" id="msgOk">¡Producto registrado!</div>
+  <div class="msg-err" id="msgErr">Completá el nombre del producto.</div>
+  <div class="maestro-info" id="maestroInfo">Cargando maestro...</div>
+  <label style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#667eea;cursor:pointer;justify-content:center">
+    🔄 Actualizar maestro
+    <input type="file" accept=".xlsx,.xls" onchange="cargarMaestro(event)" style="display:none">
+  </label>
+</div>
+
+<div class="panel-tabla">
+  <div class="stats-row">
+    <div class="stat-card rojo" onclick="filtrar('critico')"><div class="stat-num" id="sR">0</div><div class="stat-label">🔴 Críticos</div></div>
+    <div class="stat-card amarillo" onclick="filtrar('atencion')"><div class="stat-num" id="sA">0</div><div class="stat-label">🟡 Atención</div></div>
+    <div class="stat-card verde" onclick="filtrar('ok')"><div class="stat-num" id="sV">0</div><div class="stat-label">🟢 OK</div></div>
+    <div class="stat-card gris" onclick="filtrar('todos')"><div class="stat-num" id="sT">0</div><div class="stat-label">📦 Total</div></div>
+  </div>
+  <div class="filtros">
+    <button class="fb act" onclick="filtrar('todos')" id="f-todos">Todos</button>
+    <button class="fb" onclick="filtrar('critico')" id="f-critico">🔴 Críticos</button>
+    <button class="fb" onclick="filtrar('atencion')" id="f-atencion">🟡 Atención</button>
+    <button class="fb" onclick="filtrar('ok')" id="f-ok">🟢 OK</button>
+    <button class="fb" onclick="filtrar('sin-fecha')" id="f-sin-fecha">◻ Sin fecha</button>
+    <input class="buscar-t" placeholder="🔍 Buscar en tabla..." oninput="renderTabla()">
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Código</th><th>Producto</th><th>Lote</th><th>Vencimiento</th><th>Días</th><th>Cant.</th><th>Ubicación</th><th>Estado</th><th></th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+</div>
+</div>
+
+<div class="modal-ov" id="modalOv">
+  <div class="modal">
+    <h3>✏️ Editar producto</h3>
+    <input type="hidden" id="eIdx">
+    <div class="fg"><label>Producto</label><input type="text" id="eNombre" readonly></div>
+    <div class="fg"><label>Nº de Lote</label><input type="text" id="eLote"></div>
+    <div class="fg"><label>Fecha de Vencimiento</label><input type="date" id="eFecha"></div>
+    <div class="fg"><label>Cantidad</label><input type="number" id="eCant" min="0"></div>
+    <div class="fg"><label>Ubicación</label><input type="text" id="eUbic"></div>
+    <div class="modal-btns">
+      <button class="btn-grd" onclick="guardarEdit()">Guardar</button>
+      <button class="btn-can" onclick="cerrarModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =============================================
+// CONFIGURACIÓN — URL del Google Apps Script
+// =============================================
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwvFvJJW8_bgT_wulkfl9Csw0OtdM63OllWHVBmY8r1xlxlK68jQTZ8mv0qbHc2Ngwm/exec";
+
+let MAESTRO = [];
+let registros = [];
+let filtroAct = "todos", scanner = null, scanAct = false, prodSel = null, acIdx = -1, usbTimer = null, buscarTInput = null;
+let syncPendiente = false;
+
+// =============================================
+// SYNC CON GOOGLE SHEETS
+// =============================================
+function setSyncStatus(estado, txt) {
+  const dot = document.getElementById("syncDot");
+  const label = document.getElementById("syncTxt");
+  dot.className = "sync-dot" + (estado === "syncing" ? " syncing" : estado === "error" ? " error" : "");
+  label.textContent = txt;
+}
+
+async function cargarDesdeNube() {
+  setSyncStatus("syncing", "Sincronizando datos...");
+  try {
+    const res = await fetch(SCRIPT_URL);
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      registros = data.map(r => ({
+        id: r.id || Date.now(),
+        codigo: r.codigo || "",
+        nombre: r.nombre || "",
+        lote: r.lote || "—",
+        fecha: r.fecha || "",
+        cantidad: r.cantidad || "",
+        ubicacion: r.ubicacion || "—",
+        cargado: r.cargado || ""
+      }));
+      renderTabla();
+      actualizarStats();
+      setSyncStatus("ok", `Sincronizado — ${registros.length} registros`);
+    }
+  } catch (e) {
+    setSyncStatus("error", "Sin conexión — trabajando offline");
+    // Fallback a localStorage
+    const local = localStorage.getItem("meraki_venc");
+    if (local) registros = JSON.parse(local);
+    renderTabla();
+    actualizarStats();
+  }
+}
+
+async function guardarEnNube() {
+  setSyncStatus("syncing", "Guardando...");
+  // Guardar también en localStorage como backup
+  localStorage.setItem("meraki_venc", JSON.stringify(registros));
+  try {
+    await fetch(SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "save", registros }),
+      headers: { "Content-Type": "text/plain" }
+    });
+    setSyncStatus("ok", `Guardado en la nube — ${registros.length} registros`);
+  } catch (e) {
+    setSyncStatus("error", "Error al guardar en la nube — guardado local");
+  }
+}
+
+// =============================================
+// INIT
+// =============================================
+function init() {
+  const g = localStorage.getItem("meraki_maestro");
+  if (g) { MAESTRO = JSON.parse(g); mostrarApp(); }
+  buscarTInput = document.querySelector(".buscar-t");
+  setTimeout(() => { if (!scanAct) document.getElementById("usbInput").focus(); }, 400);
+}
+
+function mostrarApp() {
+  document.getElementById("setupScreen").style.display = "none";
+  document.getElementById("appPrincipal").style.display = "block";
+  document.getElementById("maestroInfo").innerHTML = `Maestro: <span class="maestro-ok">${MAESTRO.length.toLocaleString()} productos</span>`;
+  cargarDesdeNube();
+  setTimeout(() => document.getElementById("usbInput").focus(), 300);
+}
+
+// =============================================
+// MAESTRO
+// =============================================
+function cargarMaestro(event) {
+  const file = event.target.files[0]; if (!file) return;
+  document.getElementById("loadingBar").style.display = "block";
+  document.getElementById("loadingTxt").style.display = "block";
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type: "array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+      MAESTRO = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const id = row[0] !== undefined && row[0] !== null ? String(row[0]).trim() : "";
+        const nombre = row[1] !== undefined && row[1] !== null ? String(row[1]).trim() : "";
+        const eliminado = row[13];
+        if (nombre && eliminado != 1) MAESTRO.push({id, nombre});
+      }
+      localStorage.setItem("meraki_maestro", JSON.stringify(MAESTRO));
+      document.getElementById("loadingBar").style.display = "none";
+      document.getElementById("loadingTxt").style.display = "none";
+      mostrarApp(); event.target.value = "";
+    } catch(err) {
+      alert("Error al leer el archivo.");
+      document.getElementById("loadingBar").style.display = "none";
+      document.getElementById("loadingTxt").style.display = "none";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// =============================================
+// SCANNER USB
+// =============================================
+function usbIput() {
+  clearTimeout(usbTimer);
+  usbTimer = setTimeout(() => { const cod = document.getElementById("usbInput").value.trim(); if (cod) procesarCodigo(cod); }, 80);
+}
+function usbKey(e) {
+  if (e.key === "Enter") { e.preventDefault(); clearTimeout(usbTimer); const cod = document.getElementById("usbInput").value.trim(); if (cod) procesarCodigo(cod); }
+}
+function procesarCodigo(cod) {
+  let prod = MAESTRO.find(p => p.id === cod);
+  if (!prod) prod = MAESTRO.find(p => p.id.replace(/^0+/, "") === cod.replace(/^0+/, ""));
+  const st = document.getElementById("usbStatus");
+  if (prod) {
+    selProd(prod); st.className = "usb-status usb-ok";
+    st.textContent = "✅ " + prod.nombre.substring(0, 38) + (prod.nombre.length > 38 ? "…" : "");
+    setTimeout(() => { document.getElementById("inputFecha").focus(); }, 150);
+  } else {
+    prodSel = {id: cod, nombre: ""};
+    document.getElementById("codBox").textContent = cod;
+    document.getElementById("inputNombre").value = "";
+    document.getElementById("inputBusq").value = "";
+    st.className = "usb-status usb-err"; st.textContent = "⚠️ Código no encontrado — ingresá nombre";
+    setTimeout(() => document.getElementById("inputNombre").removeAttribute("readonly"), 100);
+    setTimeout(() => document.getElementById("inputNombre").focus(), 150);
+  }
+  setTimeout(() => { document.getElementById("usbInput").value = ""; document.getElementById("usbInput").focus(); }, 1800);
+}
+
+// =============================================
+// SCANNER CÁMARA
+// =============================================
+function toggleScan() { if (scanAct) { pararScan(); } else { iniciarScan(); } }
+function iniciarScan() {
+  scanner = new Html5Qrcode("reader");
+  scanner.start(
+    {facingMode: "environment"},
+    {fps: 10, qrbox: {width: 250, height: 110}, formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E
+    ]},
+    (txt) => { pararScan(); procesarCodigo(txt); },
+    () => {}
+  ).then(() => {
+    scanAct = true;
+    document.getElementById("btnScan").textContent = "⏹ Detener cámara";
+    document.getElementById("btnScan").classList.add("activo");
+  }).catch(() => alert("No se pudo acceder a la cámara."));
+}
+function pararScan() {
+  if (scanner) scanner.stop().then(() => {
+    scanner = null; scanAct = false;
+    document.getElementById("btnScan").textContent = "📷 Activar cámara";
+    document.getElementById("btnScan").classList.remove("activo");
+  });
+}
+
+// =============================================
+// AUTOCOMPLETE
+// =============================================
+function buscar() {
+  const q = document.getElementById("inputBusq").value.trim().toLowerCase();
+  const list = document.getElementById("acList"); acIdx = -1;
+  if (q.length < 2) { list.classList.remove("vis"); return; }
+  const res = MAESTRO.filter(p => p.nombre.toLowerCase().includes(q) || p.id.includes(q)).slice(0, 40);
+  if (!res.length) { list.classList.remove("vis"); return; }
+  list.innerHTML = res.map((p, i) => `<div class="ac-item" data-i="${i}" onclick='selProd(${JSON.stringify(p).replace(/"/g,"&quot;")})'>${p.nombre}<div class="ac-cod">${p.id}</div></div>`).join("");
+  list.classList.add("vis");
+}
+function navAc(e) {
+  const items = document.querySelectorAll(".ac-item"); if (!items.length) return;
+  if (e.key === "ArrowDown") acIdx = Math.min(acIdx+1, items.length-1);
+  else if (e.key === "ArrowUp") acIdx = Math.max(acIdx-1, 0);
+  else if (e.key === "Enter" && acIdx >= 0) {
+    const q = document.getElementById("inputBusq").value.trim().toLowerCase();
+    const res = MAESTRO.filter(p => p.nombre.toLowerCase().includes(q) || p.id.includes(q));
+    if (res[acIdx]) selProd(res[acIdx]);
+    document.getElementById("acList").classList.remove("vis");
+  } else return;
+  items.forEach((el, i) => el.classList.toggle("sel", i === acIdx));
+}
+function selProd(p) {
+  prodSel = p;
+  document.getElementById("codBox").textContent = p.id || "—";
+  document.getElementById("inputNombre").value = p.nombre;
+  document.getElementById("inputNombre").setAttribute("readonly", "");
+  document.getElementById("inputBusq").value = p.nombre;
+  document.getElementById("acList").classList.remove("vis");
+}
+document.addEventListener("click", e => { if (!e.target.closest(".ac-wrap")) document.getElementById("acList").classList.remove("vis"); });
+
+// =============================================
+// CRUD
+// =============================================
+function agregar() {
+  const nombre = document.getElementById("inputNombre").value.trim();
+  if (!nombre) { showMsg("err"); return; }
+  registros.push({
+    id: Date.now(),
+    codigo: prodSel ? prodSel.id : "",
+    nombre,
+    lote: document.getElementById("inputLote").value.trim() || "—",
+    fecha: document.getElementById("inputFecha").value || "",
+    cantidad: document.getElementById("inputCant").value || "",
+    ubicacion: document.getElementById("inputUbic").value.trim() || "—",
+    cargado: new Date().toLocaleDateString("es-AR")
+  });
+  guardarEnNube();
+  limpiar(); renderTabla(); actualizarStats(); showMsg("ok");
+}
+
+function limpiar() {
+  prodSel = null;
+  ["inputBusq","inputNombre","inputLote","inputFecha","inputCant","inputUbic"].forEach(id => {
+    const el = document.getElementById(id); el.value = "";
+    if (id === "inputNombre") el.setAttribute("readonly", "");
+  });
+  document.getElementById("codBox").textContent = "—";
+  document.getElementById("usbStatus").textContent = "";
+  document.getElementById("usbInput").focus();
+}
+
+function showMsg(t) {
+  const ok = document.getElementById("msgOk"), err = document.getElementById("msgErr");
+  ok.style.display = t === "ok" ? "block" : "none";
+  err.style.display = t === "err" ? "block" : "none";
+  if (t === "ok") setTimeout(() => ok.style.display = "none", 2500);
+  if (t === "err") setTimeout(() => err.style.display = "none", 2500);
+}
+
+function dias(f) { if (!f) return null; const hoy = new Date(); hoy.setHours(0,0,0,0); return Math.ceil((new Date(f+"T00:00:00") - hoy) / 86400000); }
+function estado(d) { if (d === null) return "sin-fecha"; if (d <= 7) return "critico"; if (d <= 30) return "atencion"; return "ok"; }
+function badge(d) {
+  if (d === null) return `<span class="badge b-gry">◻ Sin fecha</span>`;
+  if (d < 0) return `<span class="badge b-red">🔴 Vencido</span>`;
+  if (d === 0) return `<span class="badge b-red">🔴 Hoy</span>`;
+  if (d <= 7) return `<span class="badge b-red">🔴 ${d}d</span>`;
+  if (d <= 30) return `<span class="badge b-yel">🟡 ${d}d</span>`;
+  return `<span class="badge b-grn">🟢 ${d}d</span>`;
+}
+function fmtF(s) { if (!s) return "—"; const[y,m,d]=s.split("-"); return `${d}/${m}/${y}`; }
+
+function filtrar(f) {
+  filtroAct = f;
+  document.querySelectorAll(".fb").forEach(b => b.classList.remove("act"));
+  const btn = document.getElementById("f-"+f); if (btn) btn.classList.add("act");
+  renderTabla();
+}
+
+function renderTabla() {
+  const q = buscarTInput ? buscarTInput.value.toLowerCase() : "";
+  let lista = registros.map(r => ({...r, d: dias(r.fecha), e: estado(dias(r.fecha))}));
+  if (filtroAct !== "todos") lista = lista.filter(r => r.e === filtroAct);
+  if (q) lista = lista.filter(r => r.nombre.toLowerCase().includes(q) || (r.codigo||"").toLowerCase().includes(q) || (r.lote||"").toLowerCase().includes(q));
+  lista.sort((a,b) => {
+    const o = {"critico":0,"atencion":1,"sin-fecha":2,"ok":3};
+    if (o[a.e] !== o[b.e]) return o[a.e]-o[b.e];
+    if (a.d !== null && b.d !== null) return a.d-b.d;
+    return 0;
+  });
+  const tbody = document.getElementById("tbody");
+  if (!lista.length) { tbody.innerHTML = `<tr><td colspan="10" class="vacio">📭 Sin resultados.<br><small>Usá el panel izquierdo para agregar productos.</small></td></tr>`; return; }
+  tbody.innerHTML = lista.map((r,i) => {
+    const idx = registros.findIndex(x => x.id === r.id);
+    return `<tr><td style="color:#a0aec0;font-size:0.78rem">${i+1}</td><td style="font-family:monospace;font-size:0.8rem">${r.codigo||"—"}</td><td style="font-weight:600;max-width:180px">${r.nombre}</td><td>${r.lote||"—"}</td><td>${fmtF(r.fecha)}</td><td>${badge(r.d)}</td><td>${r.cantidad||"—"}</td><td style="font-size:0.8rem;color:#718096">${r.ubicacion||"—"}</td><td>${badge(r.d)}</td><td style="white-space:nowrap"><button class="btn-edt" onclick="abrirModal(${idx})">✏️</button><button class="btn-del" onclick="eliminar(${idx})">🗑️</button></td></tr>`;
+  }).join("");
+}
+
+function actualizarStats() {
+  const arr = registros.map(r => ({d:dias(r.fecha),e:estado(dias(r.fecha))}));
+  document.getElementById("sR").textContent = arr.filter(r => r.e==="critico").length;
+  document.getElementById("sA").textContent = arr.filter(r => r.e==="atencion").length;
+  document.getElementById("sV").textContent = arr.filter(r => r.e==="ok").length;
+  document.getElementById("sT").textContent = registros.length;
+}
+
+function abrirModal(idx) {
+  const r = registros[idx];
+  document.getElementById("eIdx").value = idx;
+  document.getElementById("eNombre").value = r.nombre;
+  document.getElementById("eLote").value = r.lote === "—" ? "" : r.lote;
+  document.getElementById("eFecha").value = r.fecha;
+  document.getElementById("eCant").value = r.cantidad;
+  document.getElementById("eUbic").value = r.ubicacion === "—" ? "" : r.ubicacion;
+  document.getElementById("modalOv").classList.add("vis");
+}
+function guardarEdit() {
+  const idx = parseInt(document.getElementById("eIdx").value);
+  registros[idx].lote = document.getElementById("eLote").value || "—";
+  registros[idx].fecha = document.getElementById("eFecha").value;
+  registros[idx].cantidad = document.getElementById("eCant").value;
+  registros[idx].ubicacion = document.getElementById("eUbic").value || "—";
+  guardarEnNube(); renderTabla(); actualizarStats(); cerrarModal();
+}
+function cerrarModal() { document.getElementById("modalOv").classList.remove("vis"); }
+function eliminar(idx) {
+  if (confirm("¿Eliminás este registro?")) {
+    registros.splice(idx, 1);
+    guardarEnNube(); renderTabla(); actualizarStats();
+  }
+}
+
+// =============================================
+// EXPORTAR / IMPORTAR / REPORTE
+// =============================================
+function exportarDatos() {
+  if (!registros.length) { alert("No hay registros para exportar."); return; }
+  const hoy = new Date().toISOString().slice(0,10);
+  const blob = new Blob([JSON.stringify(registros,null,2)], {type:"application/json"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `meraki_vencimientos_${hoy}.json`; a.click();
+}
+function importarDatos(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const datos = JSON.parse(e.target.result);
+      if (!Array.isArray(datos)) throw new Error();
+      const ids = new Set(registros.map(r => r.id));
+      const nuevos = datos.filter(r => !ids.has(r.id));
+      registros = [...registros, ...nuevos];
+      guardarEnNube(); renderTabla(); actualizarStats();
+      alert(`✅ Importados ${nuevos.length} registros nuevos. Total: ${registros.length}`);
+    } catch { alert("❌ Archivo inválido."); }
+    event.target.value = "";
+  };
+  reader.readAsText(file);
+}
+function enviarReporte() {
+  const hoy = new Date().toLocaleDateString("es-AR");
+  const criticos = registros.filter(r => estado(dias(r.fecha)) === "critico");
+  const atencion = registros.filter(r => estado(dias(r.fecha)) === "atencion");
+  let body = `REPORTE DE VENCIMIENTOS — MERCADO MERAKI\nFecha: ${hoy}\n\nTotal: ${registros.length} | Críticos: ${criticos.length} | Atención: ${atencion.length}\n\n`;
+  if (criticos.length) { body += `=== CRÍTICOS (vencidos o ≤7 días) ===\n`; criticos.forEach(r => { const d = dias(r.fecha); body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${d<0?"VENCIDO":d+"d"}) | ${r.ubicacion}\n`; }); body += "\n"; }
+  if (atencion.length) { body += `=== ATENCIÓN (8–30 días) ===\n`; atencion.forEach(r => body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${dias(r.fecha)}d) | ${r.ubicacion}\n`); }
+  if (!criticos.length && !atencion.length) body += "¡Todos los productos están en buen estado!";
+  const asunto = encodeURIComponent(`[Meraki] Reporte de Vencimientos — ${hoy}`);
+  window.location.href = `mailto:merakipablo72@gmail.com?subject=${asunto}&body=${encodeURIComponent(body)}`;
+}
+
+init();
+</script>
+</body>
+</html>
