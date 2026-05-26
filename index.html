@@ -315,6 +315,8 @@ tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
   <div class="fg"><label>Fecha de Vencimiento *</label><input type="date" id="inputFecha"></div>
   <div class="fg"><label>Cantidad en stock</label><input type="number" id="inputCant" min="0" placeholder="Ej: 12"></div>
   <div class="fg"><label>Ubicación (opcional)</label><input type="text" id="inputUbic" placeholder="Ej: Góndola 3, estante 2"></div>
+  <div class="fg"><label>Empleado *</label><input type="text" id="inputEmpleado" placeholder="Nombre del empleado"></div>
+  <div class="fg"><label>Sucursal *</label><input type="text" id="inputSucursal" placeholder="Ej: Meraki Centro"></div>
   <button class="btn-agregar" onclick="agregar()">✅ Agregar a control</button>
   <div class="msg-ok" id="msgOk">¡Producto registrado!</div>
   <div class="msg-err" id="msgErr">Completá el nombre del producto.</div>
@@ -341,7 +343,7 @@ tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
     <input class="buscar-t" placeholder="🔍 Buscar en tabla..." oninput="renderTabla()">
   </div>
   <table>
-    <thead><tr><th>#</th><th>Código</th><th>Producto</th><th>Lote</th><th>Vencimiento</th><th>Días</th><th>Cant.</th><th>Ubicación</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Código</th><th>Producto</th><th>Lote</th><th>Vencimiento</th><th>Días</th><th>Cant.</th><th>Ubicación</th><th>Empleado</th><th>Sucursal</th><th>Estado</th><th></th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
 </div>
@@ -357,6 +359,8 @@ tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
     <div class="fg"><label>Fecha de Vencimiento</label><input type="date" id="eFecha"></div>
     <div class="fg"><label>Cantidad</label><input type="number" id="eCant" min="0"></div>
     <div class="fg"><label>Ubicación</label><input type="text" id="eUbic"></div>
+    <div class="fg"><label>Empleado</label><input type="text" id="eEmpleado"></div>
+    <div class="fg"><label>Sucursal</label><input type="text" id="eSucursal"></div>
     <div class="modal-btns">
       <button class="btn-grd" onclick="guardarEdit()">Guardar</button>
       <button class="btn-can" onclick="cerrarModal()">Cancelar</button>
@@ -365,19 +369,37 @@ tr:hover td{background:#f7fafc} tr:last-child td{border-bottom:none}
 </div>
 
 <script>
-// =============================================
-// CONFIGURACIÓN — URL del Google Apps Script
-// =============================================
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbys1QA1nhS_YJfnGbjiD9efcUgncv1sHa_l3zLvQ-K_6vvmgoxobp3Tz0vsdEwtkLU2/exec";
 
 let MAESTRO = [];
 let registros = [];
 let filtroAct = "todos", scanner = null, scanAct = false, prodSel = null, acIdx = -1, usbTimer = null, buscarTInput = null;
-let syncPendiente = false;
 
-// =============================================
-// SYNC CON GOOGLE SHEETS
-// =============================================
+function normalizarFecha(f) {
+  if (!f && f !== 0) return "";
+  f = String(f).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(f)) {
+    const [d, m, y] = f.split("/");
+    return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
+  }
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(f)) {
+    const parts = f.split("-");
+    if (parts[0].length <= 2) return `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+  }
+  const num = Number(f);
+  if (!isNaN(num) && num > 1000 && num < 100000) {
+    const excelEpoch = new Date(Date.UTC(1900, 0, 1));
+    const date = new Date(excelEpoch.getTime() + (num - 2) * 86400000);
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`;
+  }
+  const parsed = new Date(f);
+  if (!isNaN(parsed.getTime())) {
+    return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth()+1).padStart(2,"0")}-${String(parsed.getUTCDate()).padStart(2,"0")}`;
+  }
+  return f;
+}
+
 function setSyncStatus(estado, txt) {
   const dot = document.getElementById("syncDot");
   const label = document.getElementById("syncTxt");
@@ -387,53 +409,47 @@ function setSyncStatus(estado, txt) {
 
 async function cargarDesdeNube() {
   setSyncStatus("syncing", "Sincronizando datos...");
+  const local = localStorage.getItem("meraki_venc");
+  if (local) {
+    try {
+      registros = JSON.parse(local).map(r => ({ ...r, fecha: normalizarFecha(r.fecha) }));
+      renderTabla(); actualizarStats();
+    } catch(e) { registros = []; }
+  }
   try {
     const res = await fetch(SCRIPT_URL);
     const data = await res.json();
-    if (Array.isArray(data)) {
-      registros = data.map(r => ({
-        id: r.id || Date.now(),
-        codigo: r.codigo || "",
-        nombre: r.nombre || "",
-        lote: r.lote || "—",
-        fecha: r.fecha || "",
-        cantidad: r.cantidad || "",
-        ubicacion: r.ubicacion || "—",
-        cargado: r.cargado || ""
+    if (Array.isArray(data) && data.length > 0) {
+      const nube = data.map(r => ({
+        id: r.id || Date.now(), codigo: r.codigo || "", nombre: r.nombre || "",
+        lote: r.lote || "—", fecha: normalizarFecha(r.fecha), cantidad: r.cantidad || "",
+        ubicacion: r.ubicacion || "—", empleado: r.empleado || "—", sucursal: r.sucursal || "—", cargado: r.cargado || ""
       }));
-      renderTabla();
-      actualizarStats();
+      const idsNube = new Set(nube.map(r => String(r.id)));
+      const soloLocales = registros.filter(r => !idsNube.has(String(r.id)));
+      registros = [...nube, ...soloLocales];
+      localStorage.setItem("meraki_venc", JSON.stringify(registros));
+      renderTabla(); actualizarStats();
       setSyncStatus("ok", `Sincronizado — ${registros.length} registros`);
+    } else {
+      setSyncStatus("ok", `Datos locales — ${registros.length} registros`);
     }
   } catch (e) {
     setSyncStatus("error", "Sin conexión — trabajando offline");
-    // Fallback a localStorage
-    const local = localStorage.getItem("meraki_venc");
-    if (local) registros = JSON.parse(local);
-    renderTabla();
-    actualizarStats();
   }
 }
 
 async function guardarEnNube() {
   setSyncStatus("syncing", "Guardando...");
-  // Guardar también en localStorage como backup
   localStorage.setItem("meraki_venc", JSON.stringify(registros));
   try {
-    await fetch(SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "save", registros }),
-      headers: { "Content-Type": "text/plain" }
-    });
+    await fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify({ action: "save", registros }), headers: { "Content-Type": "text/plain" } });
     setSyncStatus("ok", `Guardado en la nube — ${registros.length} registros`);
   } catch (e) {
-    setSyncStatus("error", "Error al guardar en la nube — guardado local");
+    setSyncStatus("error", "Error al guardar en la nube — guardado local ✓");
   }
 }
 
-// =============================================
-// INIT
-// =============================================
 function init() {
   const g = localStorage.getItem("meraki_maestro");
   if (g) { MAESTRO = JSON.parse(g); mostrarApp(); }
@@ -449,9 +465,6 @@ function mostrarApp() {
   setTimeout(() => document.getElementById("usbInput").focus(), 300);
 }
 
-// =============================================
-// MAESTRO
-// =============================================
 function cargarMaestro(event) {
   const file = event.target.files[0]; if (!file) return;
   document.getElementById("loadingBar").style.display = "block";
@@ -484,9 +497,6 @@ function cargarMaestro(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// =============================================
-// SCANNER USB
-// =============================================
 function usbIput() {
   clearTimeout(usbTimer);
   usbTimer = setTimeout(() => { const cod = document.getElementById("usbInput").value.trim(); if (cod) procesarCodigo(cod); }, 80);
@@ -514,9 +524,6 @@ function procesarCodigo(cod) {
   setTimeout(() => { document.getElementById("usbInput").value = ""; document.getElementById("usbInput").focus(); }, 1800);
 }
 
-// =============================================
-// SCANNER CÁMARA
-// =============================================
 function toggleScan() { if (scanAct) { pararScan(); } else { iniciarScan(); } }
 function iniciarScan() {
   scanner = new Html5Qrcode("reader");
@@ -543,9 +550,6 @@ function pararScan() {
   });
 }
 
-// =============================================
-// AUTOCOMPLETE
-// =============================================
 function buscar() {
   const q = document.getElementById("inputBusq").value.trim().toLowerCase();
   const list = document.getElementById("acList"); acIdx = -1;
@@ -577,20 +581,17 @@ function selProd(p) {
 }
 document.addEventListener("click", e => { if (!e.target.closest(".ac-wrap")) document.getElementById("acList").classList.remove("vis"); });
 
-// =============================================
-// CRUD
-// =============================================
 function agregar() {
   const nombre = document.getElementById("inputNombre").value.trim();
   if (!nombre) { showMsg("err"); return; }
   registros.push({
-    id: Date.now(),
-    codigo: prodSel ? prodSel.id : "",
-    nombre,
+    id: Date.now(), codigo: prodSel ? prodSel.id : "", nombre,
     lote: document.getElementById("inputLote").value.trim() || "—",
-    fecha: document.getElementById("inputFecha").value || "",
+    fecha: normalizarFecha(document.getElementById("inputFecha").value) || "",
     cantidad: document.getElementById("inputCant").value || "",
     ubicacion: document.getElementById("inputUbic").value.trim() || "—",
+    empleado: document.getElementById("inputEmpleado").value.trim() || "—",
+    sucursal: document.getElementById("inputSucursal").value.trim() || "—",
     cargado: new Date().toLocaleDateString("es-AR")
   });
   guardarEnNube();
@@ -599,7 +600,7 @@ function agregar() {
 
 function limpiar() {
   prodSel = null;
-  ["inputBusq","inputNombre","inputLote","inputFecha","inputCant","inputUbic"].forEach(id => {
+  ["inputBusq","inputNombre","inputLote","inputFecha","inputCant","inputUbic","inputEmpleado","inputSucursal"].forEach(id => {
     const el = document.getElementById(id); el.value = "";
     if (id === "inputNombre") el.setAttribute("readonly", "");
   });
@@ -616,7 +617,13 @@ function showMsg(t) {
   if (t === "err") setTimeout(() => err.style.display = "none", 2500);
 }
 
-function dias(f) { if (!f) return null; const hoy = new Date(); hoy.setHours(0,0,0,0); return Math.ceil((new Date(f+"T00:00:00") - hoy) / 86400000); }
+function dias(f) {
+  if (!f) return null;
+  const fn = normalizarFecha(f);
+  if (!fn) return null;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  return Math.ceil((new Date(fn + "T00:00:00") - hoy) / 86400000);
+}
 function estado(d) { if (d === null) return "sin-fecha"; if (d <= 7) return "critico"; if (d <= 60) return "atencion"; return "ok"; }
 function badge(d) {
   if (d === null) return `<span class="badge b-gry">◻ Sin fecha</span>`;
@@ -626,7 +633,13 @@ function badge(d) {
   if (d <= 60) return `<span class="badge b-yel">🟡 ${d}d</span>`;
   return `<span class="badge b-grn">🟢 ${d}d</span>`;
 }
-function fmtF(s) { if (!s) return "—"; const[y,m,d]=s.split("-"); return `${d}/${m}/${y}`; }
+function fmtF(s) {
+  if (!s) return "—";
+  const fn = normalizarFecha(s);
+  if (!fn || !/^\d{4}-\d{2}-\d{2}$/.test(fn)) return s;
+  const [y,m,d] = fn.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 function filtrar(f) {
   filtroAct = f;
@@ -647,10 +660,10 @@ function renderTabla() {
     return 0;
   });
   const tbody = document.getElementById("tbody");
-  if (!lista.length) { tbody.innerHTML = `<tr><td colspan="10" class="vacio">📭 Sin resultados.<br><small>Usá el panel izquierdo para agregar productos.</small></td></tr>`; return; }
+  if (!lista.length) { tbody.innerHTML = `<tr><td colspan="12" class="vacio">📭 Sin resultados.<br><small>Usá el panel izquierdo para agregar productos.</small></td></tr>`; return; }
   tbody.innerHTML = lista.map((r,i) => {
     const idx = registros.findIndex(x => x.id === r.id);
-    return `<tr><td style="color:#a0aec0;font-size:0.78rem">${i+1}</td><td style="font-family:monospace;font-size:0.8rem">${r.codigo||"—"}</td><td style="font-weight:600;max-width:180px">${r.nombre}</td><td>${r.lote||"—"}</td><td>${fmtF(r.fecha)}</td><td>${badge(r.d)}</td><td>${r.cantidad||"—"}</td><td style="font-size:0.8rem;color:#718096">${r.ubicacion||"—"}</td><td>${badge(r.d)}</td><td style="white-space:nowrap"><button class="btn-edt" onclick="abrirModal(${idx})">✏️</button><button class="btn-del" onclick="eliminar(${idx})">🗑️</button></td></tr>`;
+    return `<tr><td style="color:#a0aec0;font-size:0.78rem">${i+1}</td><td style="font-family:monospace;font-size:0.8rem">${r.codigo||"—"}</td><td style="font-weight:600;max-width:180px">${r.nombre}</td><td>${r.lote||"—"}</td><td>${fmtF(r.fecha)}</td><td>${badge(r.d)}</td><td>${r.cantidad||"—"}</td><td style="font-size:0.8rem;color:#718096">${r.ubicacion||"—"}</td><td style="font-size:0.8rem;color:#2d3748">${r.empleado||"—"}</td><td style="font-size:0.8rem;color:#553c9a;font-weight:600">${r.sucursal||"—"}</td><td>${badge(r.d)}</td><td style="white-space:nowrap"><button class="btn-edt" onclick="abrirModal(${idx})">✏️</button><button class="btn-del" onclick="eliminar(${idx})">🗑️</button></td></tr>`;
   }).join("");
 }
 
@@ -667,17 +680,21 @@ function abrirModal(idx) {
   document.getElementById("eIdx").value = idx;
   document.getElementById("eNombre").value = r.nombre;
   document.getElementById("eLote").value = r.lote === "—" ? "" : r.lote;
-  document.getElementById("eFecha").value = r.fecha;
+  document.getElementById("eFecha").value = normalizarFecha(r.fecha);
   document.getElementById("eCant").value = r.cantidad;
   document.getElementById("eUbic").value = r.ubicacion === "—" ? "" : r.ubicacion;
+  document.getElementById("eEmpleado").value = r.empleado === "—" ? "" : (r.empleado || "");
+  document.getElementById("eSucursal").value = r.sucursal === "—" ? "" : (r.sucursal || "");
   document.getElementById("modalOv").classList.add("vis");
 }
 function guardarEdit() {
   const idx = parseInt(document.getElementById("eIdx").value);
   registros[idx].lote = document.getElementById("eLote").value || "—";
-  registros[idx].fecha = document.getElementById("eFecha").value;
+  registros[idx].fecha = normalizarFecha(document.getElementById("eFecha").value);
   registros[idx].cantidad = document.getElementById("eCant").value;
   registros[idx].ubicacion = document.getElementById("eUbic").value || "—";
+  registros[idx].empleado = document.getElementById("eEmpleado").value || "—";
+  registros[idx].sucursal = document.getElementById("eSucursal").value || "—";
   guardarEnNube(); renderTabla(); actualizarStats(); cerrarModal();
 }
 function cerrarModal() { document.getElementById("modalOv").classList.remove("vis"); }
@@ -688,9 +705,6 @@ function eliminar(idx) {
   }
 }
 
-// =============================================
-// EXPORTAR / IMPORTAR / REPORTE
-// =============================================
 function exportarDatos() {
   if (!registros.length) { alert("No hay registros para exportar."); return; }
   const hoy = new Date().toISOString().slice(0,10);
@@ -705,8 +719,9 @@ function importarDatos(event) {
     try {
       const datos = JSON.parse(e.target.result);
       if (!Array.isArray(datos)) throw new Error();
+      const normalizados = datos.map(r => ({...r, fecha: normalizarFecha(r.fecha)}));
       const ids = new Set(registros.map(r => r.id));
-      const nuevos = datos.filter(r => !ids.has(r.id));
+      const nuevos = normalizados.filter(r => !ids.has(r.id));
       registros = [...registros, ...nuevos];
       guardarEnNube(); renderTabla(); actualizarStats();
       alert(`✅ Importados ${nuevos.length} registros nuevos. Total: ${registros.length}`);
@@ -720,8 +735,8 @@ function enviarReporte() {
   const criticos = registros.filter(r => estado(dias(r.fecha)) === "critico");
   const atencion = registros.filter(r => estado(dias(r.fecha)) === "atencion");
   let body = `REPORTE DE VENCIMIENTOS — MERCADO MERAKI\nFecha: ${hoy}\n\nTotal: ${registros.length} | Críticos: ${criticos.length} | Atención: ${atencion.length}\n\n`;
-  if (criticos.length) { body += `=== CRÍTICOS (vencidos o ≤7 días) ===\n`; criticos.forEach(r => { const d = dias(r.fecha); body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${d<0?"VENCIDO":d+"d"}) | ${r.ubicacion}\n`; }); body += "\n"; }
-  if (atencion.length) { body += `=== ATENCIÓN (8–30 días) ===\n`; atencion.forEach(r => body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${dias(r.fecha)}d) | ${r.ubicacion}\n`); }
+  if (criticos.length) { body += `=== CRÍTICOS (vencidos o ≤7 días) ===\n`; criticos.forEach(r => { const d = dias(r.fecha); body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${d<0?"VENCIDO":d+"d"}) | Ubic: ${r.ubicacion} | Emp: ${r.empleado||"—"} | Suc: ${r.sucursal||"—"}\n`; }); body += "\n"; }
+  if (atencion.length) { body += `=== ATENCIÓN (8–60 días) ===\n`; atencion.forEach(r => body += `• ${r.nombre} | Cód: ${r.codigo||"—"} | Lote: ${r.lote} | Vence: ${fmtF(r.fecha)} (${dias(r.fecha)}d) | Ubic: ${r.ubicacion} | Emp: ${r.empleado||"—"} | Suc: ${r.sucursal||"—"}\n`); }
   if (!criticos.length && !atencion.length) body += "¡Todos los productos están en buen estado!";
   const asunto = encodeURIComponent(`[Meraki] Reporte de Vencimientos — ${hoy}`);
   window.location.href = `mailto:merakipablo72@gmail.com?subject=${asunto}&body=${encodeURIComponent(body)}`;
